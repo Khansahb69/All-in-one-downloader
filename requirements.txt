@@ -1,0 +1,6 @@
+Flask
+requests
+yt-dlp
+instaloader
+Werkzeug
+gunicorn
