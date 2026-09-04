@@ -10,17 +10,45 @@ from werkzeug.utils import secure_filename
 import zipfile
 import shutil
 
+
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'change-this-secret-key'
 
-DOWNLOAD_DIR = os.path.join(os.getcwd(), 'downloads')
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
+app.config['SECRET_KEY'] = os.getenv(
+    'FLASK_SECRET_KEY',
+    'change-this-secret-key'
+)
+
+# API key is read from Render Environment Variables.
+# Render:
+# Key   = API_KEY
+# Value = your new secret API key
+API_KEY = os.getenv('API_KEY')
+
+DOWNLOAD_DIR = os.path.join(
+    os.getcwd(),
+    'downloads'
+)
+
+os.makedirs(
+    DOWNLOAD_DIR,
+    exist_ok=True
+)
+
+
+# ============================================================
+# UNIVERSAL DOWNLOADER
+# ============================================================
 
 class UniversalDownloader:
 
     def __init__(self):
+
         self.session = requests.Session()
+
         self.session.headers.update({
             'User-Agent': (
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -29,96 +57,159 @@ class UniversalDownloader:
             )
         })
 
+    # ========================================================
+    # PLATFORM DETECTION
+    # ========================================================
+
     def detect_platform(self, url):
+
         url = url.lower()
 
         if 'youtube.com' in url or 'youtu.be' in url:
             return 'youtube'
+
         if 'instagram.com' in url:
             return 'instagram'
+
         if 'facebook.com' in url or 'fb.watch' in url:
             return 'facebook'
+
         if 'twitter.com' in url or 'x.com' in url:
             return 'twitter'
+
         if 'tiktok.com' in url:
             return 'tiktok'
+
         if 'pinterest.com' in url:
             return 'pinterest'
+
         if 'linkedin.com' in url:
             return 'linkedin'
+
         if 'snapchat.com' in url:
             return 'snapchat'
+
         if 'reddit.com' in url:
             return 'reddit'
+
         if 'twitch.tv' in url:
             return 'twitch'
 
+        if 'vimeo.com' in url:
+            return 'vimeo'
+
+        if 'dailymotion.com' in url:
+            return 'dailymotion'
+
         return 'unknown'
 
-    # =========================================================
+    # ========================================================
     # YOUTUBE
-    # =========================================================
+    # ========================================================
 
     def download_youtube_content(self, url, path):
+
         try:
+
             ydl_opts = {
                 'outtmpl': os.path.join(
                     path,
                     '%(uploader)s - %(title)s.%(ext)s'
                 ),
-                'format': 'best[height<=1080]',
+
+                'format': 'best[height<=1080]/best',
+
                 'writesubtitles': True,
+
                 'writeautomaticsub': True,
+
                 'subtitleslangs': ['en'],
+
                 'ignoreerrors': True,
+
+                'retries': 5,
+
+                'fragment_retries': 5,
+
+                'socket_timeout': 30
             }
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+            with yt_dlp.YoutubeDL(
+                ydl_opts
+            ) as ydl:
+
+                info = ydl.extract_info(
+                    url,
+                    download=True
+                )
 
             if not info:
+
                 return {
                     'status': 'error',
-                    'message': 'Could not retrieve YouTube content.'
+                    'message': (
+                        'Could not retrieve YouTube content.'
+                    )
                 }
 
             if 'entries' in info:
+
                 titles = [
-                    entry.get('title', 'Unknown')
+                    entry.get(
+                        'title',
+                        'Unknown'
+                    )
+
                     for entry in info['entries']
                     if entry
                 ]
 
                 return {
                     'status': 'success',
-                    'message': f'Downloaded {len(titles)} videos from playlist',
+                    'message': (
+                        f'Downloaded {len(titles)} '
+                        f'videos from playlist'
+                    ),
                     'titles': titles[:5],
                     'type': 'playlist'
                 }
 
             return {
                 'status': 'success',
-                'message': 'YouTube content downloaded successfully!',
-                'title': info.get('title', 'Unknown'),
-                'uploader': info.get('uploader', 'Unknown'),
+                'message': (
+                    'YouTube content downloaded successfully!'
+                ),
+                'title': info.get(
+                    'title',
+                    'Unknown'
+                ),
+                'uploader': info.get(
+                    'uploader',
+                    'Unknown'
+                ),
                 'type': 'video'
             }
 
         except Exception as e:
+
             return {
                 'status': 'error',
                 'message': f'YouTube error: {str(e)}'
             }
 
-    # =========================================================
+    # ========================================================
     # INSTAGRAM
-    # =========================================================
+    # ========================================================
 
     def download_instagram_content(self, url, path):
+
         try:
+
             loader = instaloader.Instaloader(
                 dirname_pattern=path,
-                filename_pattern='{profile}_{mediaid}_{date_utc}',
+                filename_pattern=(
+                    '{profile}_{mediaid}_{date_utc}'
+                ),
                 download_videos=True,
                 download_video_thumbnails=False,
                 download_geotags=False,
@@ -127,23 +218,38 @@ class UniversalDownloader:
                 compress_json=False
             )
 
+            # ------------------------------------------------
+            # STORIES
+            # ------------------------------------------------
+
             if '/stories/' in url:
 
-                username = self.extract_instagram_username(url)
-
-                if not username:
-                    return {
-                        'status': 'error',
-                        'message': 'Instagram username not found.'
-                    }
-
-                profile = instaloader.Profile.from_username(
-                    loader.context,
-                    username
+                username = self.extract_instagram_username(
+                    url
                 )
 
-                for story in loader.get_stories([profile.userid]):
+                if not username:
+
+                    return {
+                        'status': 'error',
+                        'message': (
+                            'Instagram username not found.'
+                        )
+                    }
+
+                profile = (
+                    instaloader.Profile.from_username(
+                        loader.context,
+                        username
+                    )
+                )
+
+                for story in loader.get_stories(
+                    [profile.userid]
+                ):
+
                     for item in story.get_items():
+
                         loader.download_storyitem(
                             item,
                             target=username
@@ -151,9 +257,16 @@ class UniversalDownloader:
 
                 return {
                     'status': 'success',
-                    'message': f'Instagram stories downloaded for {username}',
+                    'message': (
+                        f'Instagram stories downloaded '
+                        f'for {username}'
+                    ),
                     'type': 'stories'
                 }
+
+            # ------------------------------------------------
+            # POST / REEL / TV
+            # ------------------------------------------------
 
             if (
                 '/reel/' in url
@@ -161,17 +274,26 @@ class UniversalDownloader:
                 or '/tv/' in url
             ):
 
-                shortcode = self.extract_instagram_shortcode(url)
+                shortcode = (
+                    self.extract_instagram_shortcode(
+                        url
+                    )
+                )
 
                 if not shortcode:
+
                     return {
                         'status': 'error',
-                        'message': 'Instagram shortcode not found.'
+                        'message': (
+                            'Instagram shortcode not found.'
+                        )
                     }
 
-                post = instaloader.Post.from_shortcode(
-                    loader.context,
-                    shortcode
+                post = (
+                    instaloader.Post.from_shortcode(
+                        loader.context,
+                        shortcode
+                    )
                 )
 
                 loader.download_post(
@@ -179,9 +301,14 @@ class UniversalDownloader:
                     target=post.owner_username
                 )
 
-                content_type = 'reel' if post.is_video else 'post'
+                content_type = (
+                    'reel'
+                    if post.is_video
+                    else 'post'
+                )
 
                 if post.typename == 'GraphSidecar':
+
                     content_type = 'carousel'
 
                 caption = post.caption or ''
@@ -192,7 +319,9 @@ class UniversalDownloader:
                         f'Instagram {content_type} '
                         f'downloaded successfully!'
                     ),
-                    'username': post.owner_username,
+                    'username': (
+                        post.owner_username
+                    ),
                     'caption': (
                         caption[:100] + '...'
                         if len(caption) > 100
@@ -201,17 +330,30 @@ class UniversalDownloader:
                     'type': content_type
                 }
 
-            username = self.extract_instagram_username(url)
+            # ------------------------------------------------
+            # PROFILE
+            # ------------------------------------------------
+
+            username = (
+                self.extract_instagram_username(
+                    url
+                )
+            )
 
             if not username:
+
                 return {
                     'status': 'error',
-                    'message': 'Instagram username not found.'
+                    'message': (
+                        'Instagram username not found.'
+                    )
                 }
 
-            profile = instaloader.Profile.from_username(
-                loader.context,
-                username
+            profile = (
+                instaloader.Profile.from_username(
+                    loader.context,
+                    username
+                )
             )
 
             count = 0
@@ -231,26 +373,31 @@ class UniversalDownloader:
             return {
                 'status': 'success',
                 'message': (
-                    f'Downloaded {count} recent posts '
-                    f'from {username}'
+                    f'Downloaded {count} recent '
+                    f'posts from {username}'
                 ),
                 'type': 'profile'
             }
 
         except Exception as e:
+
             return {
                 'status': 'error',
-                'message': f'Instagram error: {str(e)}'
+                'message': (
+                    f'Instagram error: {str(e)}'
+                )
             }
 
-    # =========================================================
-    # TIKTOK - UPDATED
-    # =========================================================
+    # ========================================================
+    # TIKTOK
+    # ========================================================
 
     def download_tiktok_content(self, url, path):
+
         try:
 
             ydl_opts = {
+
                 'outtmpl': os.path.join(
                     path,
                     'TikTok_%(uploader)s_%(id)s.%(ext)s'
@@ -258,26 +405,28 @@ class UniversalDownloader:
 
                 'format': 'best',
 
-                # Browser impersonation
                 'impersonate': 'chrome',
 
-                # Retry settings
                 'retries': 10,
+
                 'fragment_retries': 10,
+
                 'extractor_retries': 5,
 
-                # Small delays between requests
                 'sleep_interval': 1,
+
                 'max_sleep_interval': 3,
 
-                # Network timeout
                 'socket_timeout': 30,
 
                 'quiet': False,
-                'no_warnings': False,
+
+                'no_warnings': False
             }
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            with yt_dlp.YoutubeDL(
+                ydl_opts
+            ) as ydl:
 
                 info = ydl.extract_info(
                     url,
@@ -285,6 +434,7 @@ class UniversalDownloader:
                 )
 
             if not info:
+
                 return {
                     'status': 'error',
                     'message': (
@@ -311,18 +461,19 @@ class UniversalDownloader:
 
         except Exception as e:
 
-            error_text = str(e)
-
             return {
                 'status': 'error',
-                'message': f'TikTok error: {error_text}'
+                'message': (
+                    f'TikTok error: {str(e)}'
+                )
             }
 
-    # =========================================================
+    # ========================================================
     # TWITTER / X
-    # =========================================================
+    # ========================================================
 
     def download_twitter_content(self, url, path):
+
         try:
 
             ydl_opts = {
@@ -331,23 +482,33 @@ class UniversalDownloader:
                     'Twitter_%(uploader)s_%(title)s.%(ext)s'
                 ),
                 'writesubtitles': True,
+                'retries': 5,
+                'socket_timeout': 30
             }
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            with yt_dlp.YoutubeDL(
+                ydl_opts
+            ) as ydl:
+
                 info = ydl.extract_info(
                     url,
                     download=True
                 )
 
             if not info:
+
                 return {
                     'status': 'error',
-                    'message': 'Could not retrieve Twitter content.'
+                    'message': (
+                        'Could not retrieve Twitter content.'
+                    )
                 }
 
             return {
                 'status': 'success',
-                'message': 'Twitter content downloaded successfully!',
+                'message': (
+                    'Twitter content downloaded successfully!'
+                ),
                 'title': info.get(
                     'title',
                     'Twitter Content'
@@ -360,16 +521,20 @@ class UniversalDownloader:
             }
 
         except Exception as e:
+
             return {
                 'status': 'error',
-                'message': f'Twitter error: {str(e)}'
+                'message': (
+                    f'Twitter error: {str(e)}'
+                )
             }
 
-    # =========================================================
+    # ========================================================
     # FACEBOOK
-    # =========================================================
+    # ========================================================
 
     def download_facebook_content(self, url, path):
+
         try:
 
             ydl_opts = {
@@ -378,23 +543,34 @@ class UniversalDownloader:
                     'Facebook_%(title)s.%(ext)s'
                 ),
                 'format': 'best',
+                'retries': 5,
+                'socket_timeout': 30
             }
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            with yt_dlp.YoutubeDL(
+                ydl_opts
+            ) as ydl:
+
                 info = ydl.extract_info(
                     url,
                     download=True
                 )
 
             if not info:
+
                 return {
                     'status': 'error',
-                    'message': 'Could not retrieve Facebook content.'
+                    'message': (
+                        'Could not retrieve Facebook content.'
+                    )
                 }
 
             return {
                 'status': 'success',
-                'message': 'Facebook content downloaded successfully!',
+                'message': (
+                    'Facebook content downloaded '
+                    'successfully!'
+                ),
                 'title': info.get(
                     'title',
                     'Facebook Content'
@@ -403,16 +579,20 @@ class UniversalDownloader:
             }
 
         except Exception as e:
+
             return {
                 'status': 'error',
-                'message': f'Facebook error: {str(e)}'
+                'message': (
+                    f'Facebook error: {str(e)}'
+                )
             }
 
-    # =========================================================
+    # ========================================================
     # REDDIT
-    # =========================================================
+    # ========================================================
 
     def download_reddit_content(self, url, path):
+
         try:
 
             ydl_opts = {
@@ -420,23 +600,35 @@ class UniversalDownloader:
                     path,
                     'Reddit_%(title)s.%(ext)s'
                 ),
+                'format': 'best',
+                'retries': 5,
+                'socket_timeout': 30
             }
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            with yt_dlp.YoutubeDL(
+                ydl_opts
+            ) as ydl:
+
                 info = ydl.extract_info(
                     url,
                     download=True
                 )
 
             if not info:
+
                 return {
                     'status': 'error',
-                    'message': 'Could not retrieve Reddit content.'
+                    'message': (
+                        'Could not retrieve Reddit content.'
+                    )
                 }
 
             return {
                 'status': 'success',
-                'message': 'Reddit content downloaded successfully!',
+                'message': (
+                    'Reddit content downloaded '
+                    'successfully!'
+                ),
                 'title': info.get(
                     'title',
                     'Reddit Post'
@@ -445,16 +637,20 @@ class UniversalDownloader:
             }
 
         except Exception as e:
+
             return {
                 'status': 'error',
-                'message': f'Reddit error: {str(e)}'
+                'message': (
+                    f'Reddit error: {str(e)}'
+                )
             }
 
-    # =========================================================
+    # ========================================================
     # GENERIC
-    # =========================================================
+    # ========================================================
 
     def download_generic_content(self, url, path):
+
         try:
 
             ydl_opts = {
@@ -463,23 +659,33 @@ class UniversalDownloader:
                     '%(extractor)s_%(title)s.%(ext)s'
                 ),
                 'format': 'best',
+                'retries': 5,
+                'socket_timeout': 30
             }
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            with yt_dlp.YoutubeDL(
+                ydl_opts
+            ) as ydl:
+
                 info = ydl.extract_info(
                     url,
                     download=True
                 )
 
             if not info:
+
                 return {
                     'status': 'error',
-                    'message': 'Could not retrieve content.'
+                    'message': (
+                        'Could not retrieve content.'
+                    )
                 }
 
             return {
                 'status': 'success',
-                'message': 'Content downloaded successfully!',
+                'message': (
+                    'Content downloaded successfully!'
+                ),
                 'title': info.get(
                     'title',
                     'Unknown'
@@ -492,14 +698,17 @@ class UniversalDownloader:
             }
 
         except Exception as e:
+
             return {
                 'status': 'error',
-                'message': f'Download error: {str(e)}'
+                'message': (
+                    f'Download error: {str(e)}'
+                )
             }
 
-    # =========================================================
+    # ========================================================
     # INSTAGRAM HELPERS
-    # =========================================================
+    # ========================================================
 
     def extract_instagram_shortcode(self, url):
 
@@ -517,6 +726,7 @@ class UniversalDownloader:
             )
 
             if match:
+
                 return match.group(1)
 
         return None
@@ -529,27 +739,52 @@ class UniversalDownloader:
         )
 
         if match:
-            return match.group(1)
+
+            username = match.group(1)
+
+            reserved = [
+                'p',
+                'reel',
+                'tv',
+                'stories',
+                'explore',
+                'accounts'
+            ]
+
+            if username.lower() in reserved:
+
+                return None
+
+            return username
 
         return None
 
-    # =========================================================
+    # ========================================================
     # MAIN DOWNLOAD
-    # =========================================================
+    # ========================================================
 
-    def download_content(self, url, custom_path=None):
+    def download_content(
+        self,
+        url,
+        custom_path=None
+    ):
 
-        path = custom_path or DOWNLOAD_DIR
+        path = (
+            custom_path
+            or DOWNLOAD_DIR
+        )
 
-        platform = self.detect_platform(url)
+        platform = self.detect_platform(
+            url
+        )
 
         timestamp = datetime.now().strftime(
-            "%Y%m%d_%H%M%S"
+            '%Y%m%d_%H%M%S'
         )
 
         download_folder = os.path.join(
             path,
-            f"{platform}_{timestamp}"
+            f'{platform}_{timestamp}'
         )
 
         os.makedirs(
@@ -560,36 +795,42 @@ class UniversalDownloader:
         try:
 
             if platform == 'youtube':
+
                 return self.download_youtube_content(
                     url,
                     download_folder
                 )
 
             if platform == 'instagram':
+
                 return self.download_instagram_content(
                     url,
                     download_folder
                 )
 
             if platform == 'tiktok':
+
                 return self.download_tiktok_content(
                     url,
                     download_folder
                 )
 
             if platform == 'twitter':
+
                 return self.download_twitter_content(
                     url,
                     download_folder
                 )
 
             if platform == 'facebook':
+
                 return self.download_facebook_content(
                     url,
                     download_folder
                 )
 
             if platform == 'reddit':
+
                 return self.download_reddit_content(
                     url,
                     download_folder
@@ -604,7 +845,9 @@ class UniversalDownloader:
 
             return {
                 'status': 'error',
-                'message': f'Unexpected error: {str(e)}'
+                'message': (
+                    f'Unexpected error: {str(e)}'
+                )
             }
 
 
@@ -621,14 +864,20 @@ downloader = UniversalDownloader()
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+
+    return render_template(
+        'index.html'
+    )
 
 
 # ============================================================
 # DOWNLOAD
 # ============================================================
 
-@app.route('/download', methods=['POST'])
+@app.route(
+    '/download',
+    methods=['POST']
+)
 def download():
 
     try:
@@ -636,10 +885,13 @@ def download():
         data = request.get_json()
 
         if not data:
+
             return jsonify({
                 'status': 'error',
-                'message': 'Invalid request data'
-            })
+                'message': (
+                    'Invalid request data'
+                )
+            }), 400
 
         url = data.get(
             'url',
@@ -647,14 +899,21 @@ def download():
         ).strip()
 
         if not url:
+
             return jsonify({
                 'status': 'error',
-                'message': 'URL is required'
-            })
+                'message': (
+                    'URL is required'
+                )
+            }), 400
 
-        platform = downloader.detect_platform(url)
+        platform = downloader.detect_platform(
+            url
+        )
 
-        result = downloader.download_content(url)
+        result = downloader.download_content(
+            url
+        )
 
         result['platform'] = platform
 
@@ -664,15 +923,20 @@ def download():
 
         return jsonify({
             'status': 'error',
-            'message': f'Server error: {str(e)}'
-        })
+            'message': (
+                f'Server error: {str(e)}'
+            )
+        }), 500
 
 
 # ============================================================
 # BULK DOWNLOAD
 # ============================================================
 
-@app.route('/bulk-download', methods=['POST'])
+@app.route(
+    '/bulk-download',
+    methods=['POST']
+)
 def bulk_download():
 
     try:
@@ -680,25 +944,46 @@ def bulk_download():
         data = request.get_json()
 
         if not data:
+
             return jsonify({
                 'status': 'error',
-                'message': 'Invalid request data'
-            })
+                'message': (
+                    'Invalid request data'
+                )
+            }), 400
 
         urls = data.get(
             'urls',
             []
         )
 
-        if not urls:
+        if not isinstance(urls, list):
+
             return jsonify({
                 'status': 'error',
-                'message': 'URLs list is required'
-            })
+                'message': (
+                    'URLs must be a list'
+                )
+            }), 400
+
+        if not urls:
+
+            return jsonify({
+                'status': 'error',
+                'message': (
+                    'URLs list is required'
+                )
+            }), 400
 
         results = []
 
         for url in urls:
+
+            if not isinstance(
+                url,
+                str
+            ):
+                continue
 
             url = url.strip()
 
@@ -711,7 +996,9 @@ def bulk_download():
 
             result['url'] = url
 
-            results.append(result)
+            results.append(
+                result
+            )
 
         return jsonify({
             'status': 'success',
@@ -728,7 +1015,7 @@ def bulk_download():
             'message': (
                 f'Bulk download error: {str(e)}'
             )
-        })
+        }), 500
 
 
 # ============================================================
@@ -742,16 +1029,22 @@ def list_downloads():
 
         items = []
 
-        if os.path.exists(DOWNLOAD_DIR):
+        if os.path.exists(
+            DOWNLOAD_DIR
+        ):
 
-            for item in os.listdir(DOWNLOAD_DIR):
+            for item in os.listdir(
+                DOWNLOAD_DIR
+            ):
 
                 item_path = os.path.join(
                     DOWNLOAD_DIR,
                     item
                 )
 
-                if os.path.isfile(item_path):
+                if os.path.isfile(
+                    item_path
+                ):
 
                     items.append({
                         'name': item,
@@ -761,18 +1054,17 @@ def list_downloads():
                         )
                     })
 
-                elif os.path.isdir(item_path):
+                elif os.path.isdir(
+                    item_path
+                ):
 
-                    file_count = len([
-                        f
-                        for f in os.listdir(item_path)
-                        if os.path.isfile(
-                            os.path.join(
-                                item_path,
-                                f
-                            )
-                        )
-                    ])
+                    file_count = 0
+
+                    for root, dirs, files in os.walk(
+                        item_path
+                    ):
+
+                        file_count += len(files)
 
                     items.append({
                         'name': item,
@@ -788,14 +1080,16 @@ def list_downloads():
 
         return jsonify({
             'error': str(e)
-        })
+        }), 500
 
 
 # ============================================================
 # DOWNLOAD FILE
 # ============================================================
 
-@app.route('/download-file/<path:filename>')
+@app.route(
+    '/download-file/<path:filename>'
+)
 def download_file(filename):
 
     try:
@@ -809,7 +1103,10 @@ def download_file(filename):
             safe_filename
         )
 
-        if os.path.exists(file_path):
+        if (
+            os.path.exists(file_path)
+            and os.path.isfile(file_path)
+        ):
 
             return send_file(
                 file_path,
@@ -831,8 +1128,12 @@ def download_file(filename):
 # DOWNLOAD FOLDER
 # ============================================================
 
-@app.route('/download-folder/<foldername>')
+@app.route(
+    '/download-folder/<foldername>'
+)
 def download_folder(foldername):
+
+    temp_zip_name = None
 
     try:
 
@@ -845,58 +1146,69 @@ def download_folder(foldername):
             safe_foldername
         )
 
-        if (
+        if not (
             os.path.exists(folder_path)
             and os.path.isdir(folder_path)
         ):
 
-            temp_zip = tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix='.zip'
+            return jsonify({
+                'error': 'Folder not found'
+            }), 404
+
+        temp_zip = tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix='.zip'
+        )
+
+        temp_zip_name = temp_zip.name
+
+        temp_zip.close()
+
+        with zipfile.ZipFile(
+            temp_zip_name,
+            'w',
+            zipfile.ZIP_DEFLATED
+        ) as zipf:
+
+            for root, dirs, files in os.walk(
+                folder_path
+            ):
+
+                for file in files:
+
+                    file_path = os.path.join(
+                        root,
+                        file
+                    )
+
+                    arcname = os.path.relpath(
+                        file_path,
+                        folder_path
+                    )
+
+                    zipf.write(
+                        file_path,
+                        arcname
+                    )
+
+        return send_file(
+            temp_zip_name,
+            as_attachment=True,
+            download_name=(
+                f'{safe_foldername}.zip'
             )
-
-            temp_zip.close()
-
-            with zipfile.ZipFile(
-                temp_zip.name,
-                'w',
-                zipfile.ZIP_DEFLATED
-            ) as zipf:
-
-                for root, dirs, files in os.walk(
-                    folder_path
-                ):
-
-                    for file in files:
-
-                        file_path = os.path.join(
-                            root,
-                            file
-                        )
-
-                        arcname = os.path.relpath(
-                            file_path,
-                            folder_path
-                        )
-
-                        zipf.write(
-                            file_path,
-                            arcname
-                        )
-
-            return send_file(
-                temp_zip.name,
-                as_attachment=True,
-                download_name=(
-                    f'{safe_foldername}.zip'
-                )
-            )
-
-        return jsonify({
-            'error': 'Folder not found'
-        }), 404
+        )
 
     except Exception as e:
+
+        if temp_zip_name and os.path.exists(
+            temp_zip_name
+        ):
+
+            try:
+                os.remove(temp_zip_name)
+            except Exception:
+                pass
 
         return jsonify({
             'error': str(e)
@@ -913,11 +1225,13 @@ def supported_platforms():
     platforms = {
 
         'video_platforms': [
-            'YouTube (videos, shorts, playlists)',
+            'YouTube',
+            'YouTube Shorts',
+            'YouTube Playlists',
             'TikTok',
             'Twitter/X',
             'Facebook',
-            'Instagram (Reels, IGTV)',
+            'Instagram',
             'Reddit',
             'Twitch',
             'Vimeo',
@@ -925,12 +1239,12 @@ def supported_platforms():
         ],
 
         'social_platforms': [
-            'Instagram (Posts, Stories, Reels, IGTV)',
-            'Twitter/X (Tweets, Threads)',
-            'Facebook (Posts, Videos)',
-            'Reddit (Posts, Images, Videos)',
-            'LinkedIn (Posts)',
-            'Pinterest (Pins)'
+            'Instagram',
+            'Twitter/X',
+            'Facebook',
+            'Reddit',
+            'LinkedIn',
+            'Pinterest'
         ],
 
         'features': [
@@ -944,27 +1258,52 @@ def supported_platforms():
         ]
     }
 
-    return jsonify(platforms)
+    return jsonify(
+        platforms
+    )
+
+
+# ============================================================
+# API STATUS
+# ============================================================
+
+@app.route('/api-status')
+def api_status():
+
+    return jsonify({
+        'api_key_configured': bool(API_KEY),
+        'status': (
+            'configured'
+            if API_KEY
+            else 'not_configured'
+        )
+    })
 
 
 # ============================================================
 # CLEAR DOWNLOADS
 # ============================================================
 
-@app.route('/clear-downloads', methods=['POST'])
+@app.route(
+    '/clear-downloads',
+    methods=['POST']
+)
 def clear_downloads():
 
     try:
 
-        if os.path.exists(DOWNLOAD_DIR):
+        if os.path.exists(
+            DOWNLOAD_DIR
+        ):
 
             shutil.rmtree(
                 DOWNLOAD_DIR
             )
 
-            os.makedirs(
-                DOWNLOAD_DIR
-            )
+        os.makedirs(
+            DOWNLOAD_DIR,
+            exist_ok=True
+        )
 
         return jsonify({
             'status': 'success',
@@ -980,7 +1319,20 @@ def clear_downloads():
             'message': (
                 f'Error clearing downloads: {str(e)}'
             )
-        })
+        }), 500
+
+
+# ============================================================
+# HEALTH CHECK
+# ============================================================
+
+@app.route('/health')
+def health():
+
+    return jsonify({
+        'status': 'ok',
+        'service': 'Universal Social Media Downloader'
+    })
 
 
 # ============================================================
@@ -989,23 +1341,48 @@ def clear_downloads():
 
 if __name__ == '__main__':
 
-    print("=" * 60)
-    print("UNIVERSAL SOCIAL MEDIA DOWNLOADER")
-    print("=" * 60)
-    print("Starting server...")
+    print('=' * 60)
+
     print(
-        "Supported platforms: YouTube, Instagram, TikTok, "
-        "Twitter/X, Facebook, Reddit, and more!"
+        'UNIVERSAL SOCIAL MEDIA DOWNLOADER'
     )
+
+    print('=' * 60)
+
     print(
-        "Features: Stories, Reels, Posts, Videos, "
-        "Bulk downloads"
+        'Starting server...'
     )
-    print("Server running on: http://localhost:5000")
-    print("=" * 60)
+
+    print(
+        'API key configured:',
+        bool(API_KEY)
+    )
+
+    print(
+        'Supported platforms: '
+        'YouTube, Instagram, TikTok, '
+        'Twitter/X, Facebook, Reddit, '
+        'Twitch, Vimeo, Dailymotion'
+    )
+
+    print(
+        'Features: Stories, Reels, Posts, '
+        'Videos, Bulk downloads'
+    )
+
+    print(
+        'Server running on port 5000'
+    )
+
+    print('=' * 60)
 
     app.run(
-        debug=True,
+        debug=False,
         host='0.0.0.0',
-        port=5000
+        port=int(
+            os.getenv(
+                'PORT',
+                '5000'
+            )
+        )
     )
