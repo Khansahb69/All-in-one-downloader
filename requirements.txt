@@ -1,7 +1,7 @@
 Flask
+gunicorn
 requests
-yt-dlp==2026.8.19
 instaloader
 Werkzeug
-gunicorn
+yt-dlp
 curl_cffi
