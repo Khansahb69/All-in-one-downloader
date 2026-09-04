@@ -2,4 +2,4 @@ Flask
 requests
 yt-dlp
 instaloader
-gunicorn
+Werkzeug
