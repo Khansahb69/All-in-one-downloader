@@ -1,6 +1,6 @@
 Flask
 requests
-yt-dlp[default] @ git+https://github.com/yt-dlp/yt-dlp.git@master
+yt-dlp==2026.8.19
 instaloader
 Werkzeug
 gunicorn
