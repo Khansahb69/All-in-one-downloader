@@ -1,6 +1,6 @@
 Flask
 requests
-yt-dlp==2026.8.19
+yt-dlp --2026.8.19
 instaloader
 Werkzeug
 gunicorn
